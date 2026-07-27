@@ -1,0 +1,43 @@
+version: '3.1'
+services:
+  testing:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      extension:
+        condition: service_started
+    volumes:
+      - type: volume
+        source: cache
+        target: /var/data
+    links:
+      - mosquitto
+  extension:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        - "GO_BUILDER=ghcr.io/linuxsuren/library/golang:1.23"
+        - "BASE_IMAGE=ghcr.io/linuxsuren/library/alpine:3.12"
+    ports:
+      - "7074:7074"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    links:
+      - mosquitto
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-W", "3"]
+      interval: 3s
+      timeout: 60s
+      retries: 10
+    ports:
+      - "1883:1883"
+
+volumes:
+  cache:
