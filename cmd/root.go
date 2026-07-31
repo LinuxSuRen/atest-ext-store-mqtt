@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,20 @@ import (
 	"github.com/linuxsuren/atest-ext-store-mqtt/pkg/web"
 	"github.com/spf13/cobra"
 )
+
+func getLocalIPs() []string {
+	var ips []string
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ips
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			ips = append(ips, ipnet.IP.String())
+		}
+	}
+	return ips
+}
 
 // NewRootCommand returns the root Command
 func NewRootCommand() (c *cobra.Command) {
@@ -50,7 +65,15 @@ func (o *options) runE(cmd *cobra.Command, _ []string) (err error) {
 	}
 
 	go func() {
-		log.Printf("[mqtt-web] starting web UI on http://localhost:%d", o.webPort)
+		ips := getLocalIPs()
+		if len(ips) == 0 {
+			log.Printf("[mqtt-web] starting web UI on http://localhost:%d", o.webPort)
+		} else {
+			log.Printf("[mqtt-web] starting web UI, available on:")
+			for _, ip := range ips {
+				log.Printf("[mqtt-web]   http://%s:%d", ip, o.webPort)
+			}
+		}
 		if serveErr := httpServer.ListenAndServe(); serveErr != nil && serveErr != http.ErrServerClosed {
 			log.Printf("[mqtt-web] server error: %v", serveErr)
 		}
