@@ -87,6 +87,16 @@ body {
 }
 .status-dot.disconnected { background: var(--text-muted); }
 .status-dot.connected { background: var(--success); }
+.gh-link {
+  margin-left: auto;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: color .15s;
+  white-space: nowrap;
+}
+.gh-link:hover { color: var(--primary); }
 
 /* Subscribe Bar */
 #sub-bar {
@@ -364,6 +374,7 @@ body {
   <input id="mqtt-pass" type="password" placeholder="Password" autocomplete="off">
   <button id="connect-btn" class="btn btn-primary">Connect</button>
   <button id="disconnect-btn" class="btn btn-danger" disabled>Disconnect</button>
+  <a href="https://github.com/LinuxSuRen/atest-ext-store-mqtt" target="_blank" class="gh-link" title="View on GitHub">GitHub↗</a>
 </div>
 
 <!-- Subscribe Bar -->
