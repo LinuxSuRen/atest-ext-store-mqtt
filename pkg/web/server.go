@@ -53,6 +53,10 @@ type Session struct {
 	subscribers map[string]*subscriber
 	mu          sync.RWMutex
 	done        chan struct{}
+
+	BrokerType   BrokerType
+	BrokerClients *BrokerClients
+	clientsMu    sync.RWMutex
 }
 
 // SessionManager holds all active sessions.
@@ -80,6 +84,7 @@ func NewServer(sm *SessionManager) http.Handler {
 	api.HandleFunc("/unsubscribe", sm.handleUnsubscribe).Methods("POST")
 	api.HandleFunc("/topics", sm.handleListTopics).Methods("GET")
 	api.HandleFunc("/events", sm.handleSSE).Methods("GET")
+	api.HandleFunc("/clients", sm.handleClients).Methods("GET")
 
 	// Serve the SPA
 	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +176,13 @@ func (sm *SessionManager) handleConnect(w http.ResponseWriter, r *http.Request) 
 	sm.mu.Lock()
 	sm.sessions[session.ID] = session
 	sm.mu.Unlock()
+
+	go func() {
+		session.clientsMu.Lock()
+		session.BrokerType = detectBroker(cli, req.Broker)
+		session.clientsMu.Unlock()
+		log.Printf("[mqtt-web] session %s broker type detected: %s", session.ID, session.BrokerType)
+	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{"sessionId": session.ID})
 	log.Printf("[mqtt-web] session %s connected to %s", session.ID, req.Broker)
@@ -285,6 +297,47 @@ func (sm *SessionManager) handleListTopics(w http.ResponseWriter, r *http.Reques
 	session.mu.RUnlock()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"topics": topics})
+}
+
+// handleClients queries connected client info for a session.
+func (sm *SessionManager) handleClients(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId required"})
+		return
+	}
+
+	sm.mu.RLock()
+	session, ok := sm.sessions[sessionID]
+	sm.mu.RUnlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	session.clientsMu.RLock()
+	brokerType := session.BrokerType
+	session.clientsMu.RUnlock()
+
+	if brokerType == "" || brokerType == BrokerUnknown {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"type":      BrokerUnknown,
+			"clients":   nil,
+			"updatedAt": nil,
+		})
+		return
+	}
+
+	bc := queryBrokerClients(session.Client, session.Broker, brokerType)
+
+	session.clientsMu.Lock()
+	session.BrokerClients = bc
+	session.clientsMu.Unlock()
+
+	if bc.Clients == nil {
+		bc.Clients = []ClientInfo{}
+	}
+	writeJSON(w, http.StatusOK, bc)
 }
 
 // handleSSE establishes an SSE connection for a session.
