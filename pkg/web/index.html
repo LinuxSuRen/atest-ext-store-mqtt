@@ -26,6 +26,7 @@
 html, body { height: 100%; }
 body {
   font-family: var(--font);
+  font-size: 18px;
   background: var(--bg);
   color: var(--text);
   display: flex;
@@ -37,7 +38,7 @@ body {
 #conn-bar {
   display: flex;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 12px 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   align-items: center;
@@ -48,9 +49,9 @@ body {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 6px 10px;
+  padding: 10px 14px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: 15px;
   outline: none;
   transition: border-color .2s;
 }
@@ -59,10 +60,10 @@ body {
 #broker { width: 260px; }
 #mqtt-user, #mqtt-pass { width: 140px; }
 .btn {
-  padding: 6px 16px;
+  padding: 10px 20px;
   border: none;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: background .2s, opacity .2s;
@@ -80,18 +81,28 @@ body {
 }
 .btn-outline:hover:not(:disabled) { background: var(--surface-hover); }
 .status-dot {
-  width: 8px; height: 8px;
+  width: 10px; height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 .status-dot.disconnected { background: var(--text-muted); }
 .status-dot.connected { background: var(--success); }
+.gh-link {
+  margin-left: auto;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: color .15s;
+  white-space: nowrap;
+}
+.gh-link:hover { color: var(--primary); }
 
 /* Subscribe Bar */
 #sub-bar {
   display: flex;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 10px 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   align-items: center;
@@ -102,9 +113,9 @@ body {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 6px 10px;
+  padding: 10px 14px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: 15px;
   font-family: var(--font-mono);
   outline: none;
 }
@@ -129,12 +140,12 @@ body {
 }
 #topic-filter {
   margin: 8px;
-  padding: 6px 10px;
+  padding: 10px 14px;
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: 15px;
   outline: none;
   flex-shrink: 0;
 }
@@ -146,10 +157,10 @@ body {
   list-style: none;
 }
 #topic-list li {
-  padding: 8px 16px;
+  padding: 12px 20px;
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -163,10 +174,10 @@ body {
   color: #fff;
 }
 .topic-count {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
   background: var(--bg);
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 10px;
   flex-shrink: 0;
   margin-left: 8px;
@@ -177,12 +188,12 @@ body {
 }
 #topic-list li .topic-del {
   visibility: hidden;
-  width: 20px;
-  height: 20px;
-  line-height: 20px;
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
   text-align: center;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
@@ -194,10 +205,10 @@ body {
 #topic-list li.active .topic-del { color: rgba(255,255,255,.7); visibility: visible; }
 #topic-list li.active .topic-del:hover { color: #ffb3b3; background: rgba(255,255,255,.15); }
 #topic-list .empty {
-  padding: 24px 16px;
+  padding: 28px 20px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 15px;
   cursor: default;
 }
 
@@ -209,10 +220,10 @@ body {
   overflow: hidden;
 }
 #message-header {
-  padding: 10px 16px;
+  padding: 12px 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 15px;
   color: var(--text-muted);
   flex-shrink: 0;
   display: flex;
@@ -222,14 +233,14 @@ body {
 #message-header strong {
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 15px;
 }
 #message-header .msg-count {
-  font-size: 12px;
+  font-size: 14px;
 }
 #clear-btn {
-  font-size: 12px;
-  padding: 3px 10px;
+  font-size: 14px;
+  padding: 5px 12px;
 }
 #message-list {
   flex: 1;
@@ -237,22 +248,22 @@ body {
   padding: 0;
 }
 #message-list .msg {
-  padding: 10px 16px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.7;
 }
 #message-list .msg:hover { background: var(--surface-hover); }
 .msg-meta {
   display: flex;
   gap: 12px;
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 .msg-payload {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
   white-space: pre-wrap;
   word-break: break-all;
   color: var(--text);
@@ -266,7 +277,7 @@ body {
   justify-content: center;
   height: 200px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 /* Resizer */
@@ -279,14 +290,66 @@ body {
 }
 #resizer:hover { background: var(--primary); }
 
+/* Clients Panel */
+#clients-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+#clients-bar .broker-type {
+  background: var(--bg);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+#clients-bar .client-count {
+  cursor: pointer;
+  transition: color .15s;
+}
+#clients-bar .client-count:hover { color: var(--primary); }
+#clients-panel {
+  display: none;
+  padding: 0 16px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  max-height: 200px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+#clients-panel.open { display: block; }
+#clients-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+#clients-panel th {
+  text-align: left;
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+#clients-panel td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
 /* Toast */
 .toast {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  padding: 10px 20px;
+  padding: 12px 24px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: 15px;
   color: #fff;
   z-index: 100;
   animation: slideIn .3s ease;
@@ -311,12 +374,25 @@ body {
   <input id="mqtt-pass" type="password" placeholder="Password" autocomplete="off">
   <button id="connect-btn" class="btn btn-primary">Connect</button>
   <button id="disconnect-btn" class="btn btn-danger" disabled>Disconnect</button>
+  <a href="https://github.com/LinuxSuRen/atest-ext-store-mqtt" target="_blank" class="gh-link" title="View on GitHub">GitHub↗</a>
 </div>
 
 <!-- Subscribe Bar -->
 <div id="sub-bar">
   <input id="topic-input" placeholder="Topic to subscribe (e.g. sensors/#)" autocomplete="off" disabled>
   <button id="sub-btn" class="btn btn-primary" disabled>Subscribe</button>
+</div>
+
+<!-- Clients Bar -->
+<div id="clients-bar" style="display:none">
+  Broker: <span class="broker-type" id="broker-type">-</span>
+  <span class="client-count" id="client-count" onclick="toggleClients()"></span>
+</div>
+<div id="clients-panel">
+  <table id="clients-table">
+    <thead><tr><th>Client ID</th><th>Username</th><th>IP</th><th>Status</th></tr></thead>
+    <tbody></tbody>
+  </table>
 </div>
 
 <!-- Main Content -->
@@ -414,7 +490,54 @@ function setConnected(connected) {
     renderTopics();
     renderMessages();
     messageHeader.innerHTML = '<span>Select a topic to view messages</span>';
+    stopClientPolling();
+    $('clients-bar').style.display = 'none';
+    $('clients-panel').classList.remove('open');
   }
+}
+
+let clientsTimer = null;
+function startClientPolling() {
+  pollClients();
+  clientsTimer = setInterval(pollClients, 10000);
+}
+function stopClientPolling() {
+  if (clientsTimer) { clearInterval(clientsTimer); clientsTimer = null; }
+}
+async function pollClients() {
+  if (!state.sessionId) return;
+  try {
+    const res = await fetch('/api/clients?sessionId=' + state.sessionId);
+    const data = await res.json();
+    if (data.type && data.type !== 'unknown') {
+      $('clients-bar').style.display = 'flex';
+      $('broker-type').textContent = data.type;
+      const count = data.total || (data.clients && data.clients.length) || 0;
+      $('client-count').textContent = count + ' client' + (count !== 1 ? 's' : '') + ' connected';
+      renderClients(data.clients || []);
+    }
+  } catch (_) {}
+}
+function renderClients(clients) {
+  const tbody = document.querySelector('#clients-table tbody');
+  tbody.innerHTML = clients.map(c =>
+    '<tr>' +
+      '<td>' + escapeHtml(c.clientId) + '</td>' +
+      '<td>' + escapeHtml(c.username || '-') + '</td>' +
+      '<td>' + escapeHtml(c.ip || '-') + '</td>' +
+      '<td style="color:' + (c.connected ? 'var(--success)' : 'var(--text-muted)') + '">' +
+        (c.connected ? 'online' : 'offline') +
+      '</td>' +
+    '</tr>'
+  ).join('');
+}
+function toggleClients() {
+  $('clients-panel').classList.toggle('open');
+}
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
 }
 
 // API helpers
@@ -445,6 +568,7 @@ connectBtn.onclick = async () => {
     state.sessionId = data.sessionId;
     setConnected(true);
     startSSE();
+    startClientPolling();
     toast('Connected to ' + broker, 'success');
   } catch (e) {
     toast(e.message, 'error');
