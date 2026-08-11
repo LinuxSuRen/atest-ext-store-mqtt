@@ -327,6 +327,16 @@ body {
   font-size: 14px;
   padding: 5px 12px;
 }
+#pause-btn {
+  font-size: 14px;
+  padding: 5px 12px;
+  display: none;
+}
+#pause-btn.paused {
+  background: var(--warning);
+  color: #fff;
+  border-color: var(--warning);
+}
 #message-list {
   flex: 1;
   overflow-y: auto;
@@ -504,7 +514,9 @@ body {
   <div id="resizer"></div>
   <div id="right-panel">
     <div id="message-header">
-      <span>Select a topic to view messages</span>
+      <span id="header-title">Select a topic to view messages</span>
+      <span id="header-count" class="msg-count" style="display:none"></span>
+      <button id="pause-btn" class="btn btn-sm btn-outline" style="display:none">⏸ Pause</button>
     </div>
     <div id="message-list">
       <div class="empty-state">No topic selected</div>
@@ -520,6 +532,7 @@ const state = {
   selectedTopic: null,
   messages: {},     // topic -> [{topic, payload, timestamp}]
   eventSource: null,
+  paused: false,
 };
 
 // Load from localStorage
@@ -555,6 +568,9 @@ const topicFilter = $('topic-filter');
 const topicList = $('topic-list');
 const messageHeader = $('message-header');
 const messageList = $('message-list');
+const pauseBtn = $('pause-btn');
+const headerTitle = $('header-title');
+const headerCount = $('header-count');
 
 // Toast
 function toast(msg, type = 'error') {
@@ -597,7 +613,10 @@ function setConnected(connected) {
     }
     renderTopics();
     renderMessages();
-    messageHeader.innerHTML = '<span>Select a topic to view messages</span>';
+    headerTitle.textContent = 'Select a topic to view messages';
+    headerCount.style.display = 'none';
+    pauseBtn.style.display = 'none';
+    state.paused = false;
     stopClientPolling();
     $('clients-bar').style.display = 'none';
     $('clients-panel').classList.remove('open');
@@ -679,6 +698,7 @@ connectBtn.onclick = async () => {
     startSSE();
     startClientPolling();
     loadProtoTypes();
+    loadProtoFiles();
     toast('Connected to ' + broker, 'success');
   } catch (e) {
     toast(e.message, 'error');
@@ -736,10 +756,15 @@ async function unsubscribeTopic(topic) {
 // Topic selection
 function selectTopic(topic) {
   state.selectedTopic = topic;
+  state.paused = false;
   renderTopics();
   renderMessages();
-  messageHeader.innerHTML = '<strong>' + escapeHtml(topic) + '</strong>' +
-    '<span class="msg-count">' + (state.messages[topic] || []).length + ' messages</span>';
+  pauseBtn.style.display = 'inline-block';
+  pauseBtn.classList.remove('paused');
+  pauseBtn.innerHTML = '\u23F8 Pause';
+  headerTitle.innerHTML = '<strong>' + escapeHtml(topic) + '</strong>';
+  headerCount.style.display = 'inline';
+  headerCount.textContent = (state.messages[topic] || []).length + ' messages';
 }
 
 // SSE
@@ -764,9 +789,14 @@ function startSSE() {
       }
       renderTopics();
       if (state.selectedTopic === msg.topic) {
-        renderMessages();
-        messageHeader.innerHTML = '<strong>' + escapeHtml(msg.topic) + '</strong>' +
-          '<span class="msg-count">' + state.messages[msg.topic].length + ' messages</span>';
+        if (!state.paused) {
+          renderMessages();
+          headerCount.textContent = state.messages[msg.topic].length + ' messages';
+          headerCount.style.color = '';
+        } else {
+          headerCount.textContent = '\u23F8 ' + state.messages[msg.topic].length + ' messages (paused)';
+          headerCount.style.color = 'var(--warning)';
+        }
       }
     } catch (_) {}
   });
@@ -781,6 +811,27 @@ function startSSE() {
     // SSE will auto-reconnect
   };
 }
+
+// Pause/resume message updates
+pauseBtn.onclick = () => {
+  state.paused = !state.paused;
+  if (state.paused) {
+    pauseBtn.classList.add('paused');
+    pauseBtn.innerHTML = '\u25B6 Resume';
+    if (state.selectedTopic) {
+      headerCount.textContent = '\u23F8 ' + (state.messages[state.selectedTopic] || []).length + ' messages (paused)';
+      headerCount.style.color = 'var(--warning)';
+    }
+  } else {
+    pauseBtn.classList.remove('paused');
+    pauseBtn.innerHTML = '\u23F8 Pause';
+    renderMessages();
+    if (state.selectedTopic) {
+      headerCount.textContent = (state.messages[state.selectedTopic] || []).length + ' messages';
+      headerCount.style.color = '';
+    }
+  }
+};
 
 // Render topic list
 function renderTopics() {
@@ -906,6 +957,7 @@ $('proto-file').onchange = async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     renderProtoTypes(data.types || []);
+    saveProtoFiles(files);
     if (data.types && data.types.length) {
       toast('Loaded ' + data.types.length + ' message type(s)', 'success');
     }
@@ -925,6 +977,7 @@ $('proto-clear-btn').onclick = async () => {
   try {
     await fetch('/api/proto/clear?sessionId=' + state.sessionId, { method: 'POST' });
   } catch (_) {}
+  clearProtoFiles();
   $('proto-types-list').innerHTML = '';
   $('proto-types-list').classList.remove('open');
   $('proto-toggle-btn').style.display = 'none';
@@ -956,6 +1009,59 @@ $('proto-toggle-btn').onclick = () => {
     ? 'Types ▾'
     : 'Types (' + list.children.length + ') ▸';
 };
+
+const PROTO_STORAGE = STORAGE_KEY + '-protos';
+
+function saveProtoFiles(files) {
+  const broker = $('broker').value.trim();
+  if (!broker) return;
+  const all = loadAllProtos();
+  if (!all[broker]) all[broker] = {};
+  for (const f of files) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      all[broker][f.name] = e.target.result;
+      try { localStorage.setItem(PROTO_STORAGE, JSON.stringify(all)); } catch (_) {}
+    };
+    reader.readAsText(f);
+  }
+}
+
+function clearProtoFiles() {
+  const broker = $('broker').value.trim();
+  if (!broker) return;
+  const all = loadAllProtos();
+  delete all[broker];
+  try { localStorage.setItem(PROTO_STORAGE, JSON.stringify(all)); } catch (_) {}
+}
+
+function loadAllProtos() {
+  try {
+    const raw = localStorage.getItem(PROTO_STORAGE);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) { return {}; }
+}
+
+async function loadProtoFiles() {
+  const broker = $('broker').value.trim();
+  if (!broker || !state.sessionId) return;
+  const all = loadAllProtos();
+  const files = all[broker];
+  if (!files || !Object.keys(files).length) return;
+  const form = new FormData();
+  for (const [name, content] of Object.entries(files)) {
+    form.append('files', new Blob([content], {type: 'text/plain'}), name);
+  }
+  try {
+    const res = await fetch('/api/proto/upload?sessionId=' + state.sessionId, {
+      method: 'POST', body: form,
+    });
+    const data = await res.json();
+    if (data.types && data.types.length) {
+      renderProtoTypes(data.types);
+    }
+  } catch (_) {}
+}
 
 // Init
 loadStorage();
