@@ -4,14 +4,17 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/linuxsuren/atest-ext-store-mqtt/pkg"
 )
 
 //go:embed index.html
@@ -22,6 +25,7 @@ type SSEEvent struct {
 	Topic     string `json:"topic"`
 	Payload   string `json:"payload"`
 	Timestamp string `json:"timestamp"`
+	Format    string `json:"format,omitempty"`
 }
 
 // ConnectRequest is the payload for connecting to an MQTT broker.
@@ -30,6 +34,7 @@ type ConnectRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	ClientID string `json:"clientId"`
+	UseProxy bool   `json:"useProxy"`
 }
 
 // SubscribeRequest is the payload for subscribing to a topic.
@@ -54,9 +59,13 @@ type Session struct {
 	mu          sync.RWMutex
 	done        chan struct{}
 
-	BrokerType   BrokerType
+	BrokerType    BrokerType
 	BrokerClients *BrokerClients
-	clientsMu    sync.RWMutex
+	clientsMu     sync.RWMutex
+
+	UseProxy      bool
+	ProtoRegistry *ProtoRegistry
+	origProxyEnv  map[string]string
 }
 
 // SessionManager holds all active sessions.
@@ -85,6 +94,9 @@ func NewServer(sm *SessionManager) http.Handler {
 	api.HandleFunc("/topics", sm.handleListTopics).Methods("GET")
 	api.HandleFunc("/events", sm.handleSSE).Methods("GET")
 	api.HandleFunc("/clients", sm.handleClients).Methods("GET")
+	api.HandleFunc("/proto/upload", sm.handleProtoUpload).Methods("POST")
+	api.HandleFunc("/proto/types", sm.handleProtoTypes).Methods("GET")
+	api.HandleFunc("/proto/clear", sm.handleProtoClear).Methods("POST")
 
 	// Serve the SPA
 	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +136,7 @@ func (sm *SessionManager) handleConnect(w http.ResponseWriter, r *http.Request) 
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(req.Broker)
 	opts.SetClientID(clientID)
-	opts.SetConnectTimeout(5 * time.Second)
+	opts.SetConnectTimeout(10 * time.Second)
 	opts.SetAutoReconnect(true)
 	opts.SetCleanSession(true)
 
@@ -136,11 +148,18 @@ func (sm *SessionManager) handleConnect(w http.ResponseWriter, r *http.Request) 
 	}
 
 	session := &Session{
-		ID:          uuid.New().String(),
-		Broker:      req.Broker,
-		Topics:      make(map[string]mqtt.MessageHandler),
-		subscribers: make(map[string]*subscriber),
-		done:        make(chan struct{}),
+		ID:            uuid.New().String(),
+		Broker:        req.Broker,
+		Topics:        make(map[string]mqtt.MessageHandler),
+		subscribers:   make(map[string]*subscriber),
+		done:          make(chan struct{}),
+		UseProxy:      req.UseProxy,
+		ProtoRegistry: NewProtoRegistry(),
+	}
+
+	if !req.UseProxy {
+		session.origProxyEnv = saveProxyEnv()
+		clearProxyEnv()
 	}
 
 	// Re-subscribe all known topics on (re)connect.
@@ -167,6 +186,8 @@ func (sm *SessionManager) handleConnect(w http.ResponseWriter, r *http.Request) 
 
 	cli := mqtt.NewClient(opts)
 	if token := cli.Connect(); token.Wait() && token.Error() != nil {
+		restoreProxyEnv(session.origProxyEnv)
+		session.origProxyEnv = nil
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": token.Error().Error()})
 		return
 	}
@@ -227,10 +248,17 @@ func (sm *SessionManager) handleSubscribe(w http.ResponseWriter, r *http.Request
 	session.mu.Unlock()
 
 	handler := func(_ mqtt.Client, msg mqtt.Message) {
+		rawPayload := msg.Payload()
 		event := SSEEvent{
 			Topic:     msg.Topic(),
-			Payload:   string(msg.Payload()),
+			Payload:   string(rawPayload),
 			Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if typeName, jsonData := session.ProtoRegistry.Detect(rawPayload); typeName != "" {
+			event.Payload = jsonData
+			event.Format = "proto:" + typeName
+		} else if pkg.IsProtobuf(rawPayload) {
+			event.Format = "proto"
 		}
 		session.broadcast(event)
 	}
@@ -431,6 +459,8 @@ func (sm *SessionManager) removeSession(sessionID string) {
 		return
 	}
 
+	restoreProxyEnv(session.origProxyEnv)
+	session.origProxyEnv = nil
 	close(session.done)
 	session.Client.Disconnect(250)
 	log.Printf("[mqtt-web] session %s disconnected", session.ID)
@@ -450,8 +480,140 @@ func (sm *SessionManager) Shutdown() {
 	}
 }
 
+func (sm *SessionManager) handleProtoUpload(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId is required"})
+		return
+	}
+
+	sm.mu.RLock()
+	session, ok := sm.sessions[sessionID]
+	sm.mu.RUnlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	const maxUploadSize = 10 << 20 // 10 MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to parse form: " + err.Error()})
+		return
+	}
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no files provided"})
+		return
+	}
+
+	var allTypes []string
+	var allFields []ProtoFieldInfo
+	errors := make(map[string]string)
+
+	for _, fh := range files {
+		f, err := fh.Open()
+		if err != nil {
+			errors[fh.Filename] = err.Error()
+			continue
+		}
+		content, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			errors[fh.Filename] = err.Error()
+			continue
+		}
+
+		types, fields, err := session.ProtoRegistry.LoadProto(fh.Filename, string(content))
+		if err != nil {
+			errors[fh.Filename] = err.Error()
+			continue
+		}
+		allTypes = append(allTypes, types...)
+		allFields = append(allFields, fields...)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"types":  allTypes,
+		"fields": allFields,
+		"errors": errors,
+		"total":  session.ProtoRegistry.Count(),
+	})
+}
+
+func (sm *SessionManager) handleProtoTypes(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId is required"})
+		return
+	}
+
+	sm.mu.RLock()
+	session, ok := sm.sessions[sessionID]
+	sm.mu.RUnlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"types": session.ProtoRegistry.Types(),
+		"total": session.ProtoRegistry.Count(),
+	})
+}
+
+func (sm *SessionManager) handleProtoClear(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId is required"})
+		return
+	}
+
+	sm.mu.RLock()
+	session, ok := sm.sessions[sessionID]
+	sm.mu.RUnlock()
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	session.ProtoRegistry.Clear()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+var proxyEnvVars = []string{
+	"HTTP_PROXY", "http_proxy",
+	"HTTPS_PROXY", "https_proxy",
+	"ALL_PROXY", "all_proxy",
+	"NO_PROXY", "no_proxy",
+}
+
+func saveProxyEnv() map[string]string {
+	out := make(map[string]string, len(proxyEnvVars))
+	for _, k := range proxyEnvVars {
+		out[k] = os.Getenv(k)
+	}
+	return out
+}
+
+func clearProxyEnv() {
+	for _, k := range proxyEnvVars {
+		os.Unsetenv(k)
+	}
+}
+
+func restoreProxyEnv(saved map[string]string) {
+	if saved == nil {
+		return
+	}
+	for _, k := range proxyEnvVars {
+		os.Setenv(k, saved[k])
+	}
 }

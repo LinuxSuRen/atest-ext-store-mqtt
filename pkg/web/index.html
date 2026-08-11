@@ -80,6 +80,91 @@ body {
   color: var(--text);
 }
 .btn-outline:hover:not(:disabled) { background: var(--surface-hover); }
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.proxy-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.proxy-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+/* Proto Upload */
+#proto-section {
+  padding: 8px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+#proto-section.visible { display: flex; }
+#proto-section .file-label {
+  padding: 6px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color .2s;
+}
+#proto-section .file-label:hover { border-color: var(--primary); }
+#proto-file { display: none; }
+#proto-types-list {
+  display: none;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  flex: 1 1 100%;
+}
+#proto-types-list.open { display: flex; }
+.proto-type-tag {
+  padding: 3px 8px;
+  background: rgba(108,138,255,.15);
+  color: var(--primary);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+.proto-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+/* Proto badge in messages */
+.msg-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.msg-badge.proto { background: rgba(240,160,64,.2); color: var(--warning); }
+.msg-badge.proto-match { background: rgba(78,203,113,.2); color: var(--success); }
+.msg-payload pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: rgba(0,0,0,.2);
+  padding: 8px;
+  border-radius: 4px;
+}
 .status-dot {
   width: 10px; height: 10px;
   border-radius: 50%;
@@ -374,7 +459,22 @@ body {
   <input id="mqtt-pass" type="password" placeholder="Password" autocomplete="off">
   <button id="connect-btn" class="btn btn-primary">Connect</button>
   <button id="disconnect-btn" class="btn btn-danger" disabled>Disconnect</button>
+  <label class="proxy-label" title="Use HTTP_PROXY/HTTPS_PROXY from environment">
+    <input type="checkbox" id="use-proxy" checked> HTTP Proxy
+  </label>
   <a href="https://github.com/LinuxSuRen/atest-ext-store-mqtt" target="_blank" class="gh-link" title="View on GitHub">GitHub↗</a>
+</div>
+
+<!-- Proto Upload -->
+<div id="proto-section">
+  <span style="font-size:13px;color:var(--text-muted);">Proto:</span>
+  <label class="file-label" for="proto-file">Upload .proto</label>
+  <input type="file" id="proto-file" accept=".proto" multiple>
+  <button id="proto-toggle-btn" class="btn btn-sm btn-outline" style="display:none">Types ▸</button>
+  <div id="proto-types-list"></div>
+  <div class="proto-actions">
+    <button id="proto-clear-btn" class="btn btn-sm btn-outline">Clear</button>
+  </div>
 </div>
 
 <!-- Subscribe Bar -->
@@ -431,6 +531,7 @@ function loadStorage() {
       document.getElementById('broker').value = saved.broker || '';
       document.getElementById('mqtt-user').value = saved.username || '';
       document.getElementById('mqtt-pass').value = saved.password || '';
+      $('use-proxy').checked = saved.useProxy !== undefined ? saved.useProxy : true;
     }
   } catch (_) {}
 }
@@ -439,6 +540,7 @@ function saveStorage() {
     broker: document.getElementById('broker').value,
     username: document.getElementById('mqtt-user').value,
     password: document.getElementById('mqtt-pass').value,
+    useProxy: $('use-proxy').checked,
   }));
 }
 
@@ -478,6 +580,12 @@ function setConnected(connected) {
   $('broker').disabled = connected;
   $('mqtt-user').disabled = connected;
   $('mqtt-pass').disabled = connected;
+  $('use-proxy').disabled = connected;
+  $('proto-section').classList.toggle('visible', connected);
+  $('proto-types-list').innerHTML = '';
+  $('proto-types-list').classList.remove('open');
+  $('proto-toggle-btn').style.display = 'none';
+  $('proto-file').value = '';
 
   if (!connected) {
     state.sessionId = null;
@@ -564,11 +672,13 @@ connectBtn.onclick = async () => {
       broker,
       username: $('mqtt-user').value,
       password: $('mqtt-pass').value,
+      useProxy: $('use-proxy').checked,
     });
     state.sessionId = data.sessionId;
     setConnected(true);
     startSSE();
     startClientPolling();
+    loadProtoTypes();
     toast('Connected to ' + broker, 'success');
   } catch (e) {
     toast(e.message, 'error');
@@ -718,15 +828,32 @@ function renderMessages() {
     return;
   }
 
-  messageList.innerHTML = msgs.slice().reverse().map(m =>
-    '<div class="msg">' +
+  messageList.innerHTML = msgs.slice().reverse().map(m => {
+    let payloadHtml;
+    let formatBadge = '';
+    if (m.format && m.format.startsWith('proto:')) {
+      const typeName = m.format.slice(6);
+      formatBadge = '<span class="msg-badge proto-match">' + escapeHtml(typeName) + '</span>';
+      try {
+        const obj = JSON.parse(m.payload);
+        payloadHtml = '<pre>' + escapeHtml(JSON.stringify(obj, null, 2)) + '</pre>';
+      } catch (_) {
+        payloadHtml = '<div class="msg-payload">' + escapeHtml(m.payload) + '</div>';
+      }
+    } else if (m.format === 'proto') {
+      formatBadge = '<span class="msg-badge proto">protobuf</span>';
+      payloadHtml = '<div class="msg-payload">' + escapeHtml(m.payload) + '</div>';
+    } else {
+      payloadHtml = '<div class="msg-payload">' + escapeHtml(m.payload) + '</div>';
+    }
+    return '<div class="msg">' +
       '<div class="msg-meta">' +
-        '<span>' + escapeHtml(m.topic) + '</span>' +
+        '<span>' + escapeHtml(m.topic) + formatBadge + '</span>' +
         '<span>' + escapeHtml(m.timestamp) + '</span>' +
       '</div>' +
-      '<div class="msg-payload">' + escapeHtml(m.payload) + '</div>' +
-    '</div>'
-  ).join('');
+      payloadHtml +
+    '</div>';
+  }).join('');
   messageList.scrollTop = 0;
 }
 
@@ -764,6 +891,71 @@ function escapeHtml(str) {
   el.textContent = str;
   return el.innerHTML;
 }
+
+// Proto file upload
+$('proto-file').onchange = async () => {
+  const files = $('proto-file').files;
+  if (!files.length || !state.sessionId) return;
+  const form = new FormData();
+  for (const f of files) form.append('files', f);
+  try {
+    const res = await fetch('/api/proto/upload?sessionId=' + state.sessionId, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    renderProtoTypes(data.types || []);
+    if (data.types && data.types.length) {
+      toast('Loaded ' + data.types.length + ' message type(s)', 'success');
+    }
+    if (data.errors && Object.keys(data.errors).length) {
+      Object.entries(data.errors).forEach(([file, err]) => {
+        toast(file + ': ' + err, 'error');
+      });
+    }
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  $('proto-file').value = '';
+};
+
+$('proto-clear-btn').onclick = async () => {
+  if (!state.sessionId) return;
+  try {
+    await fetch('/api/proto/clear?sessionId=' + state.sessionId, { method: 'POST' });
+  } catch (_) {}
+  $('proto-types-list').innerHTML = '';
+  $('proto-types-list').classList.remove('open');
+  $('proto-toggle-btn').style.display = 'none';
+};
+
+async function loadProtoTypes() {
+  if (!state.sessionId) return;
+  try {
+    const res = await fetch('/api/proto/types?sessionId=' + state.sessionId);
+    const data = await res.json();
+    renderProtoTypes((data.types || []).map(t => t.name));
+  } catch (_) {}
+}
+
+function renderProtoTypes(types) {
+  const list = $('proto-types-list');
+  list.innerHTML = types.map(t =>
+    '<span class="proto-type-tag">' + escapeHtml(t) + '</span>'
+  ).join('');
+  const btn = $('proto-toggle-btn');
+  btn.style.display = types.length ? 'inline-block' : 'none';
+  btn.textContent = 'Types (' + types.length + ') ▸';
+}
+
+$('proto-toggle-btn').onclick = () => {
+  const list = $('proto-types-list');
+  const open = list.classList.toggle('open');
+  $('proto-toggle-btn').textContent = open
+    ? 'Types ▾'
+    : 'Types (' + list.children.length + ') ▸';
+};
 
 // Init
 loadStorage();

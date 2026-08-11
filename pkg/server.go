@@ -91,7 +91,12 @@ func (s *remoteserver) Query(ctx context.Context, query *server.DataQuery) (resu
 	handler := func(_ mqtt.Client, msg mqtt.Message) {
 		mu.Lock()
 		defer mu.Unlock()
-		messages[msg.Topic()] = string(msg.Payload())
+		payload := msg.Payload()
+		value := string(payload)
+		if IsProtobuf(payload) {
+			log.Printf("[mqtt-store] topic %s contains protobuf data (%d bytes)", msg.Topic(), len(payload))
+		}
+		messages[msg.Topic()] = value
 	}
 
 	if token := cli.Subscribe(topic, 1, handler); token.Wait() && token.Error() != nil {
